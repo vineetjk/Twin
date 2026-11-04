@@ -1,10 +1,11 @@
 import "server-only";
+import { baseUrl } from "@/server/http";
 import { isServerless } from "@/server/runtime";
 import { setting } from "@/server/settings";
 
 /** The Python intelligence backend (FastAPI): URL from Integrations, the environment, or localhost in development. */
 export const intelligenceBackend = {
-  url: () => (setting("INTELLIGENCE_BACKEND_URL") || process.env.INTELLIGENCE_BACKEND_URL || (isServerless() ? "" : "http://localhost:8000")).replace(/\/+$/, ""),
+  url: () => baseUrl(setting("INTELLIGENCE_BACKEND_URL") || process.env.INTELLIGENCE_BACKEND_URL || (isServerless() ? "" : "http://localhost:8000")),
   configured: () => !!intelligenceBackend.url(),
 };
 

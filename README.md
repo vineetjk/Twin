@@ -51,7 +51,7 @@ Twin builds on our earlier digital-twin engine: the deterministic plant model, s
 11. [API reference](#api-reference)
 12. [Integrations (Meta Model API and open-source adapters)](#integrations)
 13. [Manufacturing intelligence backend & feature domains](#manufacturing-intelligence-backend--feature-domains)
-14. [Deploy (Docker Compose)](#deploy-with-docker-compose)
+14. [Deploy (Docker Compose, Render)](#deploy-with-docker-compose)
 15. [Scaling to market standards](#scaling-to-market-standards)
 16. [Testing](#testing)
 17. [Project structure](#project-structure)
@@ -494,9 +494,32 @@ docker compose --profile mqtt --profile storage up --build   # + Mosquitto (MQTT
 | `mqtt` (profile) | `eclipse-mosquitto` | Anonymous on the local network only; enable a password file or TLS for a plant network |
 | `storage`, `storage-init` (profile) | MinIO + `mc` | Creates the `S3_BUCKET` bucket on start |
 
-`web` and `backend` share the `twin-data` volume, which holds `twin.db`. Both images run as uid 10001 so both can write it. Set `TWIN_DEPLOYMENT=public` on an internet-facing host so admin always needs the passcode.
+`web` and `backend` share the `twin-data` volume, which holds `twin.db`. Both images start as root only to make `/data` writable (`infra/docker/entrypoint.sh`), then run as uid 10001, so both can write it. Set `TWIN_DEPLOYMENT=public` on an internet-facing host so admin always needs the passcode.
 
 > **Security note.** There is no per-user login. Anyone who can reach port 3000 can reset the demo or approve plans (simulated only). Put it behind a reverse proxy with authentication for anything beyond a demo.
+
+### Deploy to Render
+
+[`render.yaml`](render.yaml) is a Render Blueprint for the same three images:
+
+| Service | Type | Notes |
+|---|---|---|
+| `twin-web` | Web service (public) | `/api/health` health check; 1 GB disk at `/data`; `TWIN_DEPLOYMENT=public` |
+| `twin-backend` | Private service | 1 GB disk at `/data`; reached by `twin-web` only, with a generated `INTELLIGENCE_BACKEND_TOKEN` |
+| `twin-vision` | Private service | No disk; reached by `twin-web` only, with a generated `VISION_SERVICE_TOKEN` |
+
+1. Push the repository to GitHub (or GitLab) and run `npm run deploy:render`. It runs the type check and tests, pushes the current branch, and prints a link to create the Blueprint.
+2. Open the link (or go to **Dashboard → New → Blueprint** and choose the repository), and paste your Meta Model API key when Render asks for `MODEL_API_KEY` on `twin-web` and `twin-backend`.
+3. When the build is done, open the `twin-web` URL. The admin passcode (`TWIN_ADMIN_KEY`) and the MCP token (`TWIN_MCP_TOKEN`) are generated: copy them from **twin-web → Environment**.
+
+After that, every push to the Blueprint's branch redeploys the services whose files changed, and `npm run deploy:render` is just *check, then push*. To redeploy without a new commit, set `RENDER_DEPLOY_HOOKS` to the services' deploy hook URLs (**Settings → Deploy Hook**, space-separated). Use `SKIP_CHECKS=1` to skip the checks.
+
+Things to know:
+
+- **Paid instances.** Disks and private services aren't available on Render's free plan. Every service starts on `0.5c-512mb`; change `plan` in `render.yaml` to resize. To run only the web app, delete the other two services: the Intelligence Backend page and the OpenCV checks then say they're not configured, and everything else works.
+- **Separate databases.** A Render disk attaches to a single service, so `twin-web` and `twin-backend` each keep their own `twin.db`. Each component already owns its tables. The only visible difference is that the web app's AI activity log doesn't list the backend's Meta Model API calls.
+- **One instance, short restarts.** A service with a disk can't scale out, and it's unavailable for a moment while a deploy restarts it.
+- **One region.** Private networking only works within a region. All three services are in `oregon`; to move them, change `region` on all three before the first deploy.
 
 ## Scaling to market standards
 
@@ -595,7 +618,7 @@ tests/ e2e/            Vitest, Playwright, and Pytest suites
 - **No real cameras in the demo.** Camera feeds are rendered from the twin, or play reference footage of other factories, which is labelled as such. Inspection results come from the plant model's scrap attribution, not a trained vision model, and are not derived from the footage. Real streams need a plant-side gateway (HLS / MP4 / MJPEG over HTTPS). Muse Spark footage review and SAM 3.1 localisation are advisory and unvalidated; run an attribute-agreement study before relying on them. Muse Image test photos are synthetic and labelled as such.
 - **No real equipment control.** Approval changes only the digital twin. The platform never writes to PLCs or commands machines; that would need a separately authenticated, authorized and safety-validated integration.
 - **Two kinds of backend data.** The Intelligence Backend page (Admin) shows the backend's own demo plants (Bangalore, Stuttgart, Detroit). The four features in Admin → Features run on the web twin's plant instead. Demand history for the twin is generated (labelled simulated), and the forecasting engine runs without scikit-learn, so the seasonal-naive baseline usually wins the champion/challenger check.
-- **One database file, one host.** Both services share one SQLite file, so they must run on the same machine (or share a volume), as Docker Compose does with the `twin-data` volume. Tables are keyed by facility and use plain SQL, so moving to PostgreSQL is a driver change rather than a redesign (see [Scaling to market standards](#scaling-to-market-standards)).
+- **One database file, one host.** Both services share one SQLite file, so they must run on the same machine (or share a volume), as Docker Compose does with the `twin-data` volume. On Render, where a disk belongs to one service, each keeps its own file ([Deploy to Render](#deploy-to-render)). Tables are keyed by facility and use plain SQL, so moving to PostgreSQL is a driver change rather than a redesign (see [Scaling to market standards](#scaling-to-market-standards)).
 - **No per-user login.** Configuration changes (camera sources, integration settings) need the admin passcode; everything else is open to anyone with the URL.
 - **Mobile robots are simulated.** Fleets come from the Twin Builder spec (the demo plant has a derived kitting and pallet fleet); missions and trip rates follow the plant model; no fleet manager is connected (a VDA 5050 or vendor-API adapter would supply real positions). The 3D animation runs at real speed while the plant clock runs 30× faster.
 - **No automatic re-ordering in the demo plant.** Its parts without an open purchase order run out after about 55–61 hours of plant time (about 2 hours of an open tab after a reset), and the lines starve. Use **Reset Demo**, or add inventory rules in the Playground and apply them.

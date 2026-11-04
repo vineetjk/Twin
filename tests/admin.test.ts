@@ -119,6 +119,17 @@ describe("integration settings", () => {
     expect(visionService.configured()).toBe(true);
     expect(visionService.url()).toBe("http://localhost:8000");
   });
+
+  it("reads a bare host:port service address (Render's private network) as http://", async () => {
+    vi.stubEnv("VISION_SERVICE_URL", "twin-vision-a1b2:8080");
+    vi.stubEnv("INTELLIGENCE_BACKEND_URL", "twin-backend-c3d4:8000/");
+    const s = await import("@/server/settings");
+    s.__resetSettingsForTests();
+    const { visionService } = await import("@/server/integrations/vision-service");
+    const { intelligenceBackend } = await import("@/server/integrations/backend");
+    expect(visionService.url()).toBe("http://twin-vision-a1b2:8080");
+    expect(intelligenceBackend.url()).toBe("http://twin-backend-c3d4:8000");
+  });
 });
 
 describe("camera sources", () => {

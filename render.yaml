@@ -1,0 +1,100 @@
+# Render Blueprint: the docker-compose.yml stack on Render (https://render.com/docs/blueprint-spec).
+#
+#   First deploy:  Render dashboard → New → Blueprint → this repository (`npm run deploy:render` prints the link).
+#                  Render asks once for MODEL_API_KEY on twin-web and twin-backend (the Meta Model API key).
+#   Afterwards:    every push to the connected branch redeploys the services whose files changed.
+#
+# twin-web is public; twin-backend and twin-vision are private services that only twin-web reaches,
+# over Render's private network with a generated bearer token each. All three must share a region.
+#
+# A Render disk attaches to one service, so the web app and the backend each keep their own twin.db
+# (each already owns its tables; the web app's AI activity log just won't list the backend's calls).
+# Services with a disk run a single instance and are briefly unavailable while a deploy restarts them.
+
+envVarGroups:
+  - name: twin-backend-token
+    envVars:
+      - key: INTELLIGENCE_BACKEND_TOKEN
+        generateValue: true
+  - name: twin-vision-token
+    envVars:
+      - key: VISION_SERVICE_TOKEN
+        generateValue: true
+
+services:
+  - type: web
+    name: twin-web
+    runtime: docker
+    region: oregon
+    plan: 0.5c-512mb
+    dockerfilePath: ./Dockerfile
+    dockerContext: .
+    healthCheckPath: /api/health
+    disk:
+      name: twin-web-data
+      mountPath: /data
+      sizeGB: 1
+    buildFilter:
+      ignoredPaths: [backend/**, services/**, dashboard/**, e2e/**, tests/**]
+    envVars:
+      - fromGroup: twin-backend-token
+      - fromGroup: twin-vision-token
+      - key: PORT
+        value: "3000"
+      # Set here as well as in the image: the platform may set HOSTNAME to the instance name.
+      - key: HOSTNAME
+        value: 0.0.0.0
+      - key: TWIN_DEPLOYMENT
+        value: public
+      # Admin passcode (camera sources, integration settings): copy it from twin-web → Environment.
+      - key: TWIN_ADMIN_KEY
+        generateValue: true
+      # External MCP agents send this as Authorization: Bearer <token>.
+      - key: TWIN_MCP_TOKEN
+        generateValue: true
+      - key: MODEL_API_KEY
+        sync: false
+      - key: INTELLIGENCE_BACKEND_URL
+        fromService:
+          type: pserv
+          name: twin-backend
+          property: hostport
+      - key: VISION_SERVICE_URL
+        fromService:
+          type: pserv
+          name: twin-vision
+          property: hostport
+
+  - type: pserv
+    name: twin-backend
+    runtime: docker
+    region: oregon
+    plan: 0.5c-512mb
+    dockerfilePath: ./backend/Dockerfile
+    dockerContext: .
+    disk:
+      name: twin-backend-data
+      mountPath: /data
+      sizeGB: 1
+    buildFilter:
+      paths: [backend/**, infra/docker/**]
+    envVars:
+      - fromGroup: twin-backend-token
+      - key: PORT
+        value: "8000"
+      - key: MODEL_API_KEY
+        sync: false
+
+  - type: pserv
+    name: twin-vision
+    runtime: docker
+    region: oregon
+    plan: 0.5c-512mb
+    dockerfilePath: ./services/vision/Dockerfile
+    dockerContext: ./services/vision
+    buildFilter:
+      paths: [services/vision/**]
+    envVars:
+      - fromGroup: twin-vision-token
+      - key: PORT
+        value: "8080"

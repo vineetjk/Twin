@@ -17,13 +17,16 @@ ENV NODE_ENV=production \
     NEXT_TELEMETRY_DISABLED=1 \
     PORT=3000 \
     HOSTNAME=0.0.0.0 \
-    TWIN_DATA_DIR=/data
+    TWIN_DATA_DIR=/data \
+    TWIN_USER=app
 # Same uid as the backend image, so both containers can write the shared SQLite database.
-RUN adduser -S -u 10001 app && mkdir -p /data && chown app /data
+# The entrypoint starts as root only to make /data writable (a Render disk is mounted root-owned).
+RUN apk add --no-cache setpriv && adduser -S -u 10001 app && mkdir -p /data && chown app /data
 COPY --from=build /app/.next/standalone ./
 COPY --from=build /app/.next/static ./.next/static
 COPY --from=build /app/public ./public
 COPY --from=build /app/content ./content
-USER app
+COPY --chmod=0755 infra/docker/entrypoint.sh /usr/local/bin/twin-entrypoint
 EXPOSE 3000
+ENTRYPOINT ["twin-entrypoint"]
 CMD ["node", "server.js"]

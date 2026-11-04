@@ -1,4 +1,5 @@
 import "server-only";
+import { baseUrl } from "@/server/http";
 import { setting } from "@/server/settings";
 
 /**
@@ -10,7 +11,7 @@ import { setting } from "@/server/settings";
  */
 
 export const visionService = {
-  url: () => (setting("VISION_SERVICE_URL") ?? "").replace(/\/+$/, ""),
+  url: () => baseUrl(setting("VISION_SERVICE_URL")),
   configured: () => !!setting("VISION_SERVICE_URL"),
 };
 

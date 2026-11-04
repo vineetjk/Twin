@@ -5,6 +5,12 @@ import { DomainError } from "@/domain/errors";
 
 export const nowISO = () => new Date().toISOString();
 
+/** A service base URL without trailing slashes; a bare host:port (Render's private network address) means http://. */
+export function baseUrl(v: string | undefined) {
+  const s = (v ?? "").trim().replace(/\/+$/, "");
+  return s && !/^[a-z][a-z\d+.-]*:\/\//i.test(s) ? `http://${s}` : s;
+}
+
 export function json<T>(data: T, status = 200) {
   return NextResponse.json(data, { status, headers: { "Cache-Control": "no-store" } });
 }
